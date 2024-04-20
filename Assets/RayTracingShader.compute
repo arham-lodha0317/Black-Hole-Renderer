@@ -1,0 +1,96 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+
+const float DIST_EPSILON = 0.001;
+const int MAX_DIST = pow(10, 30);
+
+// -> Importance Sampling
+
+// Create a RenderTexture with enableRandomWrite flag and set it
+// with cs.SetTexture
+
+struct Ray {
+    float3 position;
+    float3 direction;
+};
+
+// struct Isect {
+//     bool didHit;
+//     float time;
+//     float3 intersectionPoint;
+//     float3 normal;
+// };
+
+struct Sphere {
+    float3 position;
+    float radius;
+    //Add Material eventually
+};
+
+RWTexture2D<float4> Result;
+RWStructuredBuffer<Sphere> spheres;
+int numSpheres;
+float4x4 inverseProjectionMatrix;
+float4x4 cameraToWorldMatrix;
+
+// Isect createIsect(bool hit, float time, float3 intersectionPoint, float3 normal){
+//     Isect isect;
+//     isect.didHit = hit;
+//     isect.time = time;
+//     isect.intersectionPoint
+// }
+
+float sphereSDF(float3 position, Sphere sphere){
+    return length(position - sphere.position) - sphere.radius;
+}
+
+float3 intersect(Ray ray) {
+    for(int i = 0; i < 1000; i++){
+        float dist = MAX_DIST;
+        for(int j = 0; j < numSpheres; j++) {
+            float sphere_dist = sphereSDF(ray.position, spheres[j]);
+
+            if(sphere_dist < DIST_EPSILON){
+                return float3(255.0, 255.0, 255.0);
+            }
+
+            dist = min(dist, sphere_dist);
+        }
+
+        ray.position += dist * ray.direction;
+    }
+
+    return float3(0.0, 0.0, 0.0);
+}
+
+Ray createRay(float3 origin, float3 direction){
+    Ray ray;
+    ray.position = origin;
+    ray.direction = direction;
+
+    return ray;
+}
+
+Ray cameraRay(float2 uv){
+    float4 origin = mul(cameraToWorldMatrix, float4(0.0, 0.0, 0.0, 1.0));
+    float4 pos = float4(uv.x, uv.y, -1.0, 1.0);
+    pos = mul(inverseProjectionMatrix, pos);
+    pos /= pos.w;
+    pos = mul(cameraToWorldMatrix, pos);
+    float4 dir = normalize(pos - origin);
+
+    return createRay(origin.xyz, dir.xyz);
+}
+
+[numthreads(8,8,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    uint width, height;
+    Result.GetDimensions(width, height);
+
+    float2 uv = id.xy / float2(width, height) * 2 - 1.0;
+
+    float3 col = intersect(cameraRay(uv));
+
+    Result[id.xy] = float4(col.x, col.y, col.z , 1.0);
+}
